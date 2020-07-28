@@ -28,8 +28,11 @@ def train(opt):
     # set cuda
     cuda = torch.device('cuda:%d' % opt.gpu_id)
 
-    train_dataset = TrainDataset(opt, phase='train')
-    test_dataset = TrainDataset(opt, phase='test')
+    # train_dataset = TrainDataset(opt, phase='train')
+    # test_dataset = TrainDataset(opt, phase='test')
+
+    train_dataset = MRIDataset(opt, phase='train')
+    test_dataset = MRIDataset(opt, phase='test')
 
     projection_mode = train_dataset.projection_mode
 
@@ -84,56 +87,56 @@ def train(opt):
     start_epoch = 0 if not opt.continue_train else max(opt.resume_epoch,0)
     for epoch in range(start_epoch, opt.num_epoch):
         epoch_start_time = time.time()
-
-        set_train()
-        iter_data_time = time.time()
-        for train_idx, train_data in enumerate(train_data_loader):
-            iter_start_time = time.time()
-
-            # retrieve the data
-            image_tensor = train_data['img'].to(device=cuda)
-            calib_tensor = train_data['calib'].to(device=cuda)
-            sample_tensor = train_data['samples'].to(device=cuda)
-
-            image_tensor, calib_tensor = reshape_multiview_tensors(image_tensor, calib_tensor)
-
-            if opt.num_views > 1:
-                sample_tensor = reshape_sample_tensor(sample_tensor, opt.num_views)
-
-            label_tensor = train_data['labels'].to(device=cuda)
-
-            res, error = netG.forward(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
-
-            optimizerG.zero_grad()
-            error.backward()
-            optimizerG.step()
-
-            iter_net_time = time.time()
-            eta = ((iter_net_time - epoch_start_time) / (train_idx + 1)) * len(train_data_loader) - (
-                    iter_net_time - epoch_start_time)
-
-            if train_idx % opt.freq_plot == 0:
-                print(
-                    'Name: {0} | Epoch: {1} | {2}/{3} | Err: {4:.06f} | LR: {5:.06f} | Sigma: {6:.02f} | dataT: {7:.05f} | netT: {8:.05f} | ETA: {9:02d}:{10:02d}'.format(
-                        opt.name, epoch, train_idx, len(train_data_loader), error.item(), lr, opt.sigma,
-                                                                            iter_start_time - iter_data_time,
-                                                                            iter_net_time - iter_start_time, int(eta // 60),
-                        int(eta - 60 * (eta // 60))))
-
-            if train_idx % opt.freq_save == 0 and train_idx != 0:
-                torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
-                torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
-
-            if train_idx % opt.freq_save_ply == 0:
-                save_path = '%s/%s/pred.ply' % (opt.results_path, opt.name)
-                r = res[0].cpu()
-                points = sample_tensor[0].transpose(0, 1).cpu()
-                save_samples_truncted_prob(save_path, points.detach().numpy(), r.detach().numpy())
-
+        if not opt.eval_only:
+            set_train()
             iter_data_time = time.time()
+            for train_idx, train_data in enumerate(train_data_loader):
+                iter_start_time = time.time()
 
-        # update learning rate
-        lr = adjust_learning_rate(optimizerG, epoch, lr, opt.schedule, opt.gamma)
+                # retrieve the data
+                image_tensor = train_data['img'].to(device=cuda)
+                calib_tensor = train_data['calib'].to(device=cuda)
+                sample_tensor = train_data['samples'].to(device=cuda)
+
+                image_tensor, calib_tensor = reshape_multiview_tensors(image_tensor, calib_tensor)
+
+                if opt.num_views > 1:
+                    sample_tensor = reshape_sample_tensor(sample_tensor, opt.num_views)
+
+                label_tensor = train_data['labels'].to(device=cuda)
+                # network input and output
+                res, error = netG.forward(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+
+                optimizerG.zero_grad()
+                error.backward()
+                optimizerG.step()
+
+                iter_net_time = time.time()
+                eta = ((iter_net_time - epoch_start_time) / (train_idx + 1)) * len(train_data_loader) - (
+                        iter_net_time - epoch_start_time)
+
+                if train_idx % opt.freq_plot == 0:
+                    print(
+                        'Name: {0} | Epoch: {1} | {2}/{3} | Err: {4:.06f} | LR: {5:.06f} | Sigma: {6:.02f} | dataT: {7:.05f} | netT: {8:.05f} | ETA: {9:02d}:{10:02d}'.format(
+                            opt.name, epoch, train_idx, len(train_data_loader), error.item(), lr, opt.sigma,
+                                                                                iter_start_time - iter_data_time,
+                                                                                iter_net_time - iter_start_time, int(eta // 60),
+                            int(eta - 60 * (eta // 60))))
+
+                if train_idx % opt.freq_save == 0 and train_idx != 0:
+                    torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
+                    torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
+
+                if train_idx % opt.freq_save_ply == 0:
+                    save_path = '%s/%s/pred.ply' % (opt.results_path, opt.name)
+                    r = res[0].cpu()
+                    points = sample_tensor[0].transpose(0, 1).cpu()
+                    save_samples_truncted_prob(save_path, points.detach().numpy(), r.detach().numpy())
+
+                iter_data_time = time.time()
+
+            # update learning rate
+            lr = adjust_learning_rate(optimizerG, epoch, lr, opt.schedule, opt.gamma)
 
         #### test
         with torch.no_grad():
@@ -161,23 +164,42 @@ def train(opt):
                 test_losses['prec(train)'] = prec
                 test_losses['recall(train)'] = recall
 
-            if not opt.no_gen_mesh:
-                print('generate mesh (test) ...')
+            # if not opt.no_gen_mesh:
+            #     print('generate mesh (test) ...')
+            #     for gen_idx in tqdm(range(opt.num_gen_mesh_test)):
+            #         test_data = random.choice(test_dataset)
+            #         save_path = '%s/%s/test_eval_epoch%d_%s.obj' % (
+            #             opt.results_path, opt.name, epoch, test_data['name'])
+            #         gen_mesh(opt, netG, cuda, test_data, save_path)
+            #
+            #     print('generate mesh (train) ...')
+            #     train_dataset.is_train = False
+            #     for gen_idx in tqdm(range(opt.num_gen_mesh_test)):
+            #         train_data = random.choice(train_dataset)
+            #         save_path = '%s/%s/train_eval_epoch%d_%s.obj' % (
+            #             opt.results_path, opt.name, epoch, train_data['name'])
+            #         gen_mesh(opt, netG, cuda, train_data, save_path)
+            #     train_dataset.is_train = True
+
+            if not opt.no_gen_mri:
+                print('generate mri (test) ...')
                 for gen_idx in tqdm(range(opt.num_gen_mesh_test)):
                     test_data = random.choice(test_dataset)
                     save_path = '%s/%s/test_eval_epoch%d_%s.obj' % (
                         opt.results_path, opt.name, epoch, test_data['name'])
-                    gen_mesh(opt, netG, cuda, test_data, save_path)
+                    gen_mri(opt, netG, cuda, test_data, save_path)
 
-                print('generate mesh (train) ...')
+                print('generate mri (train) ...')
                 train_dataset.is_train = False
                 for gen_idx in tqdm(range(opt.num_gen_mesh_test)):
                     train_data = random.choice(train_dataset)
                     save_path = '%s/%s/train_eval_epoch%d_%s.obj' % (
                         opt.results_path, opt.name, epoch, train_data['name'])
-                    gen_mesh(opt, netG, cuda, train_data, save_path)
+                    gen_mri(opt, netG, cuda, train_data, save_path)
                 train_dataset.is_train = True
 
+        if opt.eval_only:
+            break
 
 if __name__ == '__main__':
     train(opt)

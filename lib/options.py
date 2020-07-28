@@ -19,6 +19,7 @@ class BaseOptions():
         g_exp.add_argument('--name', type=str, default='example',
                            help='name of the experiment. It decides where to store samples and models')
         g_exp.add_argument('--debug', action='store_true', help='debug mode or not')
+        g_exp.add_argument('--data_samples', type=int, default=-1, help='load how many data samples')
 
         g_exp.add_argument('--num_views', type=int, default=1, help='How many views to use for multiview network.')
         g_exp.add_argument('--random_multiview', action='store_true', help='Select random multiview combination.')
@@ -36,15 +37,17 @@ class BaseOptions():
         g_train.add_argument('--batch_size', type=int, default=2, help='input batch size')
         g_train.add_argument('--learning_rate', type=float, default=1e-3, help='adam learning rate')
         g_train.add_argument('--learning_rateC', type=float, default=1e-3, help='adam learning rate')
-        g_train.add_argument('--num_epoch', type=int, default=100, help='num epoch to train')
+        g_train.add_argument('--num_epoch', type=int, default=500, help='num epoch to train')
 
         g_train.add_argument('--freq_plot', type=int, default=10, help='freqency of the error plot')
         g_train.add_argument('--freq_save', type=int, default=50, help='freqency of the save_checkpoints')
         g_train.add_argument('--freq_save_ply', type=int, default=100, help='freqency of the save ply')
-       
+
         g_train.add_argument('--no_gen_mesh', action='store_true')
+        g_train.add_argument('--no_gen_mri', action='store_true')
         g_train.add_argument('--no_num_eval', action='store_true')
-        
+        g_train.add_argument('--eval_only', action='store_true')
+
         g_train.add_argument('--resume_epoch', type=int, default=-1, help='epoch resuming the training')
         g_train.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
 
@@ -78,13 +81,17 @@ class BaseOptions():
         g_model.add_argument('--hourglass_dim', type=int, default='256', help='256 | 512')
 
         # Classification General
-        g_model.add_argument('--mlp_dim', nargs='+', default=[257, 1024, 512, 256, 128, 1], type=int,
+        g_model.add_argument('--mlp_dim', nargs='+', default=[259, 1024, 512, 256, 128, 1], type=int,
                              help='# of dimensions of mlp')
         g_model.add_argument('--mlp_dim_color', nargs='+', default=[513, 1024, 512, 256, 128, 3],
                              type=int, help='# of dimensions of color mlp')
 
         g_model.add_argument('--use_tanh', action='store_true',
                              help='using tanh after last conv of image_filter network')
+        g_model.add_argument("--i_embed", type=int, default=0,
+                            help='set 0 for default positional encoding, -1 for none')
+        g_model.add_argument("--multires", type=int, default=6,
+                            help='log2 of max freq for positional encoding (3D location)')
 
         # for train
         parser.add_argument('--random_flip', action='store_true', help='if random flip')

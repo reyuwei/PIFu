@@ -6,6 +6,8 @@ from .geometry import *
 import cv2
 from PIL import Image
 from tqdm import tqdm
+import SimpleITK as sitk
+
 
 def reshape_multiview_tensors(image_tensor, calib_tensor):
     # Careful here! Because we put single view and multiview together,
@@ -56,7 +58,7 @@ def gen_mesh(opt, net, cuda, data, save_path, use_octree=True):
             save_img = (np.transpose(image_tensor[v].detach().cpu().numpy(), (1, 2, 0)) * 0.5 + 0.5)[:, :, ::-1] * 255.0
             save_img_list.append(save_img)
         save_img = np.concatenate(save_img_list, axis=1)
-        Image.fromarray(np.uint8(save_img[:,:,::-1])).save(save_img_path)
+        Image.fromarray(np.uint8(save_img[:, :, ::-1])).save(save_img_path)
 
         verts, faces, _, _ = reconstruction(
             net, cuda, calib_tensor, opt.resolution, b_min, b_max, use_octree=use_octree)
@@ -69,6 +71,33 @@ def gen_mesh(opt, net, cuda, data, save_path, use_octree=True):
     except Exception as e:
         print(e)
         print('Can not create marching cubes at this time.')
+
+
+def gen_mri(opt, net, cuda, data, save_path):
+    try:
+        with torch.no_grad():
+            # retrieve the data
+            image_tensor = data['img'].to(device=cuda)
+            calib_tensor = data['calib'].to(device=cuda)
+            sample_tensor = data['samples_all'].to(device=cuda).unsqueeze(0)
+            label_tensor = data['labels_all'].to(device=cuda).unsqueeze(0)
+            res, error = net.forward(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+
+            labels = res.squeeze().cpu().numpy()
+            # print(np.unique(labels))
+            nii = sitk.ReadImage(data['mri_nii_path'])
+            labels = labels.reshape(nii.GetSize())
+            nii_pred = sitk.GetImageFromArray(labels.transpose(2, 1, 0))
+            nii_pred.SetDirection(nii.GetDirection())
+            nii_pred.SetSpacing(nii.GetSpacing())
+            nii_pred.SetOrigin(nii.GetOrigin())
+            sitk.WriteImage(nii_pred, save_path + ".nii.gz")
+            print('Error: {:06f}'.format(error.item()))
+
+    except Exception as e:
+        print(e)
+        print('Can not create mri volume.')
+
 
 def gen_mesh_color(opt, netG, netC, cuda, data, save_path, use_octree=True):
     image_tensor = data['img'].to(device=cuda)
@@ -87,7 +116,7 @@ def gen_mesh_color(opt, netG, netC, cuda, data, save_path, use_octree=True):
             save_img = (np.transpose(image_tensor[v].detach().cpu().numpy(), (1, 2, 0)) * 0.5 + 0.5)[:, :, ::-1] * 255.0
             save_img_list.append(save_img)
         save_img = np.concatenate(save_img_list, axis=1)
-        Image.fromarray(np.uint8(save_img[:,:,::-1])).save(save_img_path)
+        Image.fromarray(np.uint8(save_img[:, :, ::-1])).save(save_img_path)
 
         verts, faces, _, _ = reconstruction(
             netG, cuda, calib_tensor, opt.resolution, b_min, b_max, use_octree=use_octree)
@@ -110,6 +139,7 @@ def gen_mesh_color(opt, netG, netC, cuda, data, save_path, use_octree=True):
     except Exception as e:
         print(e)
         print('Can not create marching cubes at this time.')
+
 
 def adjust_learning_rate(optimizer, epoch, lr, schedule, gamma):
     """Sets the learning rate to the initial LR decayed by schedule"""
@@ -175,6 +205,7 @@ def calc_error(opt, net, cuda, dataset, num_tests):
 
     return np.average(erorr_arr), np.average(IOU_arr), np.average(prec_arr), np.average(recall_arr)
 
+
 def calc_error_color(opt, netG, netC, cuda, dataset, num_tests):
     if num_tests > len(dataset):
         num_tests = len(dataset)
@@ -194,11 +225,11 @@ def calc_error_color(opt, netG, netC, cuda, dataset, num_tests):
             rgb_tensor = data['rgbs'].to(device=cuda).unsqueeze(0)
 
             netG.filter(image_tensor)
-            _, errorC = netC.forward(image_tensor, netG.get_im_feat(), color_sample_tensor, calib_tensor, labels=rgb_tensor)
+            _, errorC = netC.forward(image_tensor, netG.get_im_feat(), color_sample_tensor, calib_tensor,
+                                     labels=rgb_tensor)
 
             # print('{0}/{1} | Error inout: {2:06f} | Error color: {3:06f}'
             #       .format(idx, num_tests, errorG.item(), errorC.item()))
             error_color_arr.append(errorC.item())
 
     return np.average(error_color_arr)
-

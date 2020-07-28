@@ -6,6 +6,7 @@ from .SurfaceClassifier import SurfaceClassifier
 from .DepthNormalizer import DepthNormalizer
 from .HGFilters import *
 from ..net_util import init_net
+from .Embedder import Embedder, get_embedder
 
 
 class HGPIFuNet(BasePIFuNet):
@@ -37,11 +38,21 @@ class HGPIFuNet(BasePIFuNet):
 
         self.image_filter = HGFilter(opt)
 
+        # self.surface_classifier = SurfaceClassifier(
+        #     filter_channels=self.opt.mlp_dim,
+        #     num_views=self.opt.num_views,
+        #     no_residual=self.opt.no_residual,
+        #     last_op=nn.Sigmoid())
+
+        embed_fn, input_ch = get_embedder(opt.multires, opt.i_embed)
+        self.embed = embed_fn
+        self.opt.mlp_dim[0] = 256 + input_ch
+
         self.surface_classifier = SurfaceClassifier(
             filter_channels=self.opt.mlp_dim,
             num_views=self.opt.num_views,
             no_residual=self.opt.no_residual,
-            last_op=nn.Sigmoid())
+            last_op=None)
 
         self.normalizer = DepthNormalizer(opt)
 
@@ -80,13 +91,12 @@ class HGPIFuNet(BasePIFuNet):
         if labels is not None:
             self.labels = labels
 
-        xyz = self.projection(points, calibs, transforms)
-        xy = xyz[:, :2, :]
-        z = xyz[:, 2:3, :]
+        xy = self.projection(points, calibs, transforms, img_size=self.opt.loadSize)
 
         in_img = (xy[:, 0] >= -1.0) & (xy[:, 0] <= 1.0) & (xy[:, 1] >= -1.0) & (xy[:, 1] <= 1.0)
 
-        z_feat = self.normalizer(z, calibs=calibs)
+        # z_feat = self.normalizer(z, calibs=calibs)
+        points_embedded = self.embed(points.transpose(2, 1)).transpose(2, 1)
 
         if self.opt.skip_hourglass:
             tmpx_local_feature = self.index(self.tmpx, xy)
@@ -95,7 +105,7 @@ class HGPIFuNet(BasePIFuNet):
 
         for im_feat in self.im_feat_list:
             # [B, Feat_i + z, N]
-            point_local_feat_list = [self.index(im_feat, xy), z_feat]
+            point_local_feat_list = [self.index(im_feat, xy), points_embedded]
 
             if self.opt.skip_hourglass:
                 point_local_feat_list.append(tmpx_local_feature)
@@ -103,7 +113,7 @@ class HGPIFuNet(BasePIFuNet):
             point_local_feat = torch.cat(point_local_feat_list, 1)
 
             # out of image plane is always set to 0
-            pred = in_img[:,None].float() * self.surface_classifier(point_local_feat)
+            pred = in_img[:, None].float() * self.surface_classifier(point_local_feat)
             self.intermediate_preds_list.append(pred)
 
         self.preds = self.intermediate_preds_list[-1]
@@ -123,7 +133,7 @@ class HGPIFuNet(BasePIFuNet):
         for preds in self.intermediate_preds_list:
             error += self.error_term(preds, self.labels)
         error /= len(self.intermediate_preds_list)
-        
+
         return error
 
     def forward(self, images, points, calibs, transforms=None, labels=None):
@@ -135,7 +145,7 @@ class HGPIFuNet(BasePIFuNet):
 
         # get the prediction
         res = self.get_preds()
-        
+
         # get the error
         error = self.get_error()
 

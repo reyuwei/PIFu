@@ -5,7 +5,7 @@ def index(feat, uv):
     '''
 
     :param feat: [B, C, H, W] image features
-    :param uv: [B, 2, N] uv coordinates in the image plane, range [-1, 1]
+    :param uv: [B, 2, N] uv coordinates in the image plane, range [-1, 1] -> [W, H]
     :return: [B, C, N] image features at the uv coordinates
     '''
     uv = uv.transpose(1, 2)  # [B, N, 2]
@@ -34,7 +34,27 @@ def orthogonal(points, calibrations, transforms=None):
     return pts
 
 
-def perspective(points, calibrations, transforms=None):
+# def perspective(points, calibrations, transforms=None):
+#     '''
+#     Compute the perspective projections of 3D points into the image plane by given projection matrix
+#     :param points: [Bx3xN] Tensor of 3D points
+#     :param calibrations: [Bx4x4] Tensor of projection matrix
+#     :param transforms: [Bx2x3] Tensor of image transform matrix
+#     :return: xy: [Bx2xN] Tensor of xy coordinates in the image plane
+#     '''
+#     rot = calibrations[:, :3, :3]
+#     trans = calibrations[:, :3, 3:4]
+#     homo = torch.baddbmm(trans, rot, points)  # [B, 3, N]
+#     xy = homo[:, :2, :] / homo[:, 2:3, :]
+#     if transforms is not None:
+#         scale = transforms[:2, :2]
+#         shift = transforms[:2, 2:3]
+#         xy = torch.baddbmm(shift, scale, xy)
+#
+#     xyz = torch.cat([xy, homo[:, 2:3, :]], 1)
+#     return xyz
+
+def perspective_mri(points, calibrations, transforms=None, img_size=224):
     '''
     Compute the perspective projections of 3D points into the image plane by given projection matrix
     :param points: [Bx3xN] Tensor of 3D points
@@ -51,5 +71,6 @@ def perspective(points, calibrations, transforms=None):
         shift = transforms[:2, 2:3]
         xy = torch.baddbmm(shift, scale, xy)
 
-    xyz = torch.cat([xy, homo[:, 2:3, :]], 1)
-    return xyz
+    xy = 2 * xy / img_size - 1  # map to [-1,1]
+    # xyz = torch.cat([xy[:, 1:, :], xy[:, :1, :], homo[:, 2:3, :]], 1)  # flip u/v
+    return xy
