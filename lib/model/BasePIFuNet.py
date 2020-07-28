@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..geometry import index, orthogonal, perspective
+from ..geometry import index, orthogonal, perspective_mri
 
 class BasePIFuNet(nn.Module):
     def __init__(self,
@@ -22,7 +22,7 @@ class BasePIFuNet(nn.Module):
         self.error_term = error_term
 
         self.index = index
-        self.projection = orthogonal if projection_mode == 'orthogonal' else perspective
+        self.projection = orthogonal if projection_mode == 'orthogonal' else perspective_mri
 
         self.preds = None
         self.labels = None
